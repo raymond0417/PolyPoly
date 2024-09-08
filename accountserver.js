@@ -22,21 +22,36 @@ wss.on('connection', (ws, request) => {
     const id = url.parse(request.url, true).query.id;
     clients.set(ws, id);
 
+    ws.send(JSON.stringify({ action: 'initialData', payload: gameState }));
+
     ws.on('message', (message) => {
-        const data = JSON.parse(message);
-        
-        if (data.action === 'requestInitialData') {
-            ws.send(JSON.stringify({ action: 'initialData', payload: gameState }));
-        } else if (data.action === 'update') {
-            const { team, type, amount } = data.payload;
-            const teamIndex = gameState.teams.findIndex(t => t.team === team);
-            if (teamIndex !== -1) {
-                gameState.teams[teamIndex][type === '現金' ? 'cash' : 'virtualCurrency'] = parseFloat(amount);
+        try {
+            const data = JSON.parse(message);
+            
+            if (data.action === 'requestInitialData') {
+                ws.send(JSON.stringify({ action: 'initialData', payload: gameState }));
+            } else if (data.action === 'update') {
+                const { team, type, amount } = data.payload;
+                if (!team || !type || isNaN(amount)) {
+                    throw new Error('Invalid update data');
+                }
+                const teamIndex = gameState.teams.findIndex(t => t.team === team);
+                if (teamIndex !== -1) {
+                    gameState.teams[teamIndex][type === '現金' ? 'cash' : 'virtualCurrency'] = parseFloat(amount);
+                }
+                broadcastUpdate(data);
+            } else if (data.action === 'updateVirtualCurrencyValue') {
+                if (isNaN(data.payload)) {
+                    throw new Error('Invalid virtual currency value');
+                }
+                gameState.virtualCurrencyValue = parseFloat(data.payload);
+                broadcastUpdate({ action: 'updateVirtualCurrencyValue', payload: data.payload });
+            } else {
+                throw new Error('Unknown action');
             }
-            broadcastUpdate(data);
-        } else if (data.action === 'updateVirtualCurrencyValue') {
-            gameState.virtualCurrencyValue = parseFloat(data.payload);
-            broadcastUpdate({ action: 'updateVirtualCurrencyValue', payload: data.payload });
+        } catch (error) {
+            console.error('Error processing message:', error);
+            ws.send(JSON.stringify({ action: 'error', message: error.message }));
         }
     });
 
